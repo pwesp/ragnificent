@@ -160,6 +160,14 @@ Now we'll embed our text chunks into vectors using a pre-trained embedding model
 
 ### Setting up the Embedding Model
 
+There are many pre-trained embedding models available on **HuggingFace**, here are some examples:
+- intfloat/multilingual-e5-base
+- Qwen/Qwen2.5-0.5B
+- Qwen/Qwen3-Embedding-0.6B
+- Qwen/Qwen3-Embedding-4B
+- sentence-transformers/all-MiniLM-L6-v2
+
+Choose an embedding model and set it in the following code block:
 ```python
 from langchain_huggingface import HuggingFaceEmbeddings
 
@@ -174,14 +182,6 @@ embedding_function = HuggingFaceEmbeddings(
 
 ### Option 1: Use in-memory vector store
 
-There are many pre-trained embedding models available on **HuggingFace**, here are some examples:
-- intfloat/multilingual-e5-base
-- Qwen/Qwen2.5-0.5B
-- Qwen/Qwen3-Embedding-0.6B
-- Qwen/Qwen3-Embedding-4B
-- sentence-transformers/all-MiniLM-L6-v2
-
-Choose an embedding model and set it in the following code block:
 ```python
 from langchain_core.vectorstores import InMemoryVectorStore
 
