@@ -1,5 +1,8 @@
-# RAG Systems: Hands-On Lecture
-How to go from retrieval to generation
+# Hands-on RAG Demo
+
+In this demo, we will go through the process of building a RAG system using **LangChain** and **HuggingFace**.
+- 🦜 LangChain: https://www.langchain.com/
+- 🤗 HuggingFace: https://huggingface.co/
 
 ## Setup
 
@@ -72,6 +75,7 @@ from langchain_community.document_loaders import WikipediaLoader
 
 loader = WikipediaLoader(
     query="What is the capital of France?",
+    load_max_docs=10
 )
 docs = loader.load()
 
@@ -95,7 +99,7 @@ import re
 os.environ['USER_AGENT'] = ("Demo")
 
 loader = WebBaseLoader(
-    web_paths=("https://www.cbssports.com/nfl/news/nfl-week-3-grades-scores-results-highlights-browns-packers-vikings-bengals/",),
+    web_paths=("https://www.nfl.com/news/2025-nfl-week-3-takeaways-what-we-learned-from-sunday-s-14-games/",),
     bs_kwargs=dict(
         parse_only=bs4.SoupStrainer("article")
     ),
@@ -141,8 +145,7 @@ print(f"Document split into {len(doc_chunks):d} chunks.")
 # Show first few chunks for verification
 for index, chunk in enumerate(doc_chunks[:3]):
     print(f"\n\nChunk {index+1}")
-    print("-"*50)
-    print("-"*50)
+    print("="*50)
     print("Metadata:")
     for k, v in chunk.metadata.items():
         print(f"{k}: {v}")
@@ -155,7 +158,21 @@ for index, chunk in enumerate(doc_chunks[:3]):
 
 Now we'll embed our text chunks into vectors using a pre-trained embedding model.
 
-### Setting up the Embedding Model and Vector Store
+### Setting up the Embedding Model
+
+```python
+from langchain_huggingface import HuggingFaceEmbeddings
+
+embedding_model_name = "<embedding_model_name>"
+
+embedding_function = HuggingFaceEmbeddings(
+    model_name=embedding_model_name,
+    model_kwargs={"device": "cuda"},
+    encode_kwargs={"normalize_embeddings": True},
+)
+```
+
+### Option 1: Use in-memory vector store
 
 There are many pre-trained embedding models available on **HuggingFace**, here are some examples:
 - intfloat/multilingual-e5-base
@@ -167,41 +184,84 @@ There are many pre-trained embedding models available on **HuggingFace**, here a
 Choose an embedding model and set it in the following code block:
 ```python
 from langchain_core.vectorstores import InMemoryVectorStore
-from langchain_huggingface import HuggingFaceEmbeddings
 
-embedding_model_name = "<embedding_model_name>"
-
-embedding_function = HuggingFaceEmbeddings(
-    model_name=embedding_model_name,
-    model_kwargs={"device": "cuda"},
-    encode_kwargs={"normalize_embeddings": True},
-)
 vector_store = InMemoryVectorStore(embedding=embedding_function)
-```
 
-### Adding Documents to Vector Store
-
-```python
 # Add documents to vector store
 document_chunk_ids = vector_store.add_documents(documents=doc_chunks)
 
 print(f"Added {len(document_chunk_ids):d} documents to the vector store")
 ```
 
-### Inspecting the Vector Store
+#### Inspecting the Vector Store
 
 ```python
-# Inspect vector store
+# Inspect in-memory vector store
 n_chunks = 5
 for index, (id, doc) in enumerate(vector_store.store.items()):
     if index < n_chunks:
-        print("\n"+"-"*100)
-        print(f"Chunk {index+1}\n")
+        print(f"Chunk {index+1}")
+        print("-"*50)
         print(f"id: {id}")
         print(f"vector (length: {len(doc['vector'])}): {doc['vector']}")
         print(f"metadata: {doc['metadata']}")
-        print(f"text:\n{doc['text'][:100]}")
+        print(f"text:\n{doc['text'] if len(doc['text']) < 100 else doc['text'][:100] + '...'}\n\n")
     else:
+        break
+```
+
+### Option 2: Use persistent FAISS vector store
+
+```python
+import faiss
+from langchain_community.docstore.in_memory import InMemoryDocstore
+from langchain_community.vectorstores import FAISS
+
+vector_store_path = "vector_store"
+
+embedding_dim = len(embedding_function.embed_query("test"))
+
+index = faiss.IndexFlatL2(embedding_dim)
+vector_store = FAISS(
+        embedding_function=embedding_function,
+        index=index,
+        docstore=InMemoryDocstore(),
+        index_to_docstore_id={},
+    )
+
+# Add documents to vector store
+document_chunk_ids = vector_store.add_documents(documents=doc_chunks)
+print(f"Added {len(document_chunk_ids):d} documents to the vector store")
+
+vector_store.save_local(vector_store_path)
+
+vector_store = FAISS.load_local(
+    vector_store_path, 
+    embeddings=embedding_function,
+    allow_dangerous_deserialization=True
+)
+```
+
+#### Inspecting the Vector Store
+
+```python
+# Inspect FAISS vector store
+n_chunks = 5
+print(f"Total documents in FAISS vector store: {vector_store.index.ntotal}")
+print(f"Vector dimension: {vector_store.index.d}")
+print("-"*50)
+
+# Get document IDs from the index_to_docstore_id mapping
+docstore_ids = list(vector_store.index_to_docstore_id.values())[:n_chunks]
+
+for index, doc_id in enumerate(docstore_ids):
+    doc = vector_store.docstore.search(doc_id)
+    print(f"Chunk {index+1}")
+    print("-"*50)
+    print(f"Document ID: {doc_id}")
+    print(f"Metadata: {doc.metadata}")
+    print(f"Text:\n{doc.page_content if len(doc.page_content) < 100 else doc.page_content[:100] + '...'}\n\n")
+    if index >= n_chunks - 1:
         break
 ```
 
@@ -272,6 +332,11 @@ chat_prompt = ChatPromptTemplate.from_messages([
 Again, there are many pre-trained language models available on HuggingFace, here are some examples:
 - google/gemma-3-1b-it
 - google/gemma-3-4b-it
+- meta-llama/Llama-2-7b
+- meta-llama/Llama-3.2-1B
+- openai-community/gpt2
+- Qwen/Qwen2.5-0.5B
+- Qwen/Qwen2.5-3B
 
 For the purpose of this demo, it can be interesting to try different models, even some lower-performance ones, to see the impact of the context provided through the RAG system.
 
